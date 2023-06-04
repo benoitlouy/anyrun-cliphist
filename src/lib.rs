@@ -1,12 +1,12 @@
 use abi_stable::std_types::{ROption, RString, RVec};
 use anyrun_plugin::*;
 use fuzzy_matcher::FuzzyMatcher;
+use itertools::Itertools;
 use nut::{DBBuilder, DB};
 use serde::Deserialize;
 use std::fs;
-use itertools::Itertools;
 
-static BUCKET_NAME: &str = "b";
+const BUCKET_NAME: &str = "b";
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -94,7 +94,9 @@ fn get_clipboard_history(db: DB) -> Result<Vec<(u64, String)>, Error> {
                         }
                     }
                     res.reverse();
-                    res.into_iter().unique_by(|e| String::from(e.1.as_str())).collect()
+                    res.into_iter()
+                        .unique_by(|e| String::from(e.1.as_str()))
+                        .collect()
                 })
             })
     })
@@ -115,11 +117,6 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
         .history
         .iter()
         .filter_map(|(id, e)| {
-            // if e.contains(input.as_str()) {
-            //     Some((id, e))
-            // } else {
-            //     None
-            // }
             let score = matcher.fuzzy_match(e.as_str(), &input).unwrap_or(0);
             if score > 0 {
                 Some((id, e, score))
@@ -133,7 +130,7 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
     entries
         .into_iter()
         .map(|(id, entry, _)| {
-            let mut title = entry.clone().replace("\n", " ");
+            let mut title = entry.clone().replace('\n', " ");
             title.truncate(100);
             Match {
                 title: title.trim().into(),
@@ -148,12 +145,16 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
 
 #[handler]
 fn handler(selection: Match, state: &State) -> HandleResult {
-    let entry = state.history.iter().find_map(|(id, entry)| {
-        if *id == selection.id.unwrap() {
-            Some(entry)
-        } else {
-            None
-        }
-    }).unwrap();
+    let entry = state
+        .history
+        .iter()
+        .find_map(|(id, entry)| {
+            if *id == selection.id.unwrap() {
+                Some(entry)
+            } else {
+                None
+            }
+        })
+        .unwrap();
     HandleResult::Copy(entry.as_bytes().into())
 }
