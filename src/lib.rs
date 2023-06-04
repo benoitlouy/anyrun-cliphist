@@ -9,19 +9,23 @@ use std::fs;
 const BUCKET_NAME: &str = "b";
 
 #[derive(Deserialize)]
-pub struct Config {
+struct Config {
     max_entries: usize,
+    db_path: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { max_entries: 10 }
+        Self {
+            max_entries: 10,
+            db_path: None,
+        }
     }
 }
 #[derive(Debug)]
 enum Error {
     CacheDirNotFound,
-    DBReadError { msg: String, cause: nut::Error },
+    DBReadError { _msg: String, _cause: nut::Error },
     DBTxError(nut::Error),
     DBBucketError(nut::Error),
     DBCursorError(nut::Error),
@@ -34,7 +38,7 @@ struct State {
 
 #[init]
 fn init(config_dir: RString) -> State {
-    let config: Config = match fs::read_to_string(format!("{}/applications.ron", config_dir)) {
+    let config: Config = match fs::read_to_string(format!("{}/cliphist.ron", config_dir)) {
         Ok(content) => ron::from_str(&content).unwrap_or_else(|why| {
             eprintln!("Error parsing applications plugin config: {}", why);
             Config::default()
@@ -45,15 +49,20 @@ fn init(config_dir: RString) -> State {
         }
     };
 
-    let user_cache_dir = dirs::cache_dir().ok_or(Error::CacheDirNotFound);
-    let db = user_cache_dir.and_then(|user_cache_dir| {
-        let path = user_cache_dir.as_path().join("cliphist").join("db");
+    let db_path = match config.db_path {
+        Some(ref s) => Ok(std::path::Path::new(s).to_path_buf()),
+        None => dirs::cache_dir()
+            .ok_or(Error::CacheDirNotFound)
+            .map(|d| d.as_path().join("cliphist").join("db")),
+    };
+
+    let db = db_path.and_then(|path| {
         DBBuilder::new(path.clone())
             .read_only(true)
             .build()
             .map_err(|e| Error::DBReadError {
-                msg: format!("failed opening cliphist db at {}", path.display()),
-                cause: e,
+                _msg: format!("failed opening cliphist db at {}", path.display()),
+                _cause: e,
             })
     });
 
