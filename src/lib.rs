@@ -38,16 +38,7 @@ struct State {
 
 #[init]
 fn init(config_dir: RString) -> State {
-    let config: Config = match fs::read_to_string(format!("{}/cliphist.ron", config_dir)) {
-        Ok(content) => ron::from_str(&content).unwrap_or_else(|why| {
-            eprintln!("Error parsing applications plugin config: {}", why);
-            Config::default()
-        }),
-        Err(why) => {
-            eprintln!("Error reading applications plugin config: {}", why);
-            Config::default()
-        }
-    };
+    let config: Config = load_config(config_dir);
 
     let db_path = match config.db_path {
         Some(ref s) => Ok(std::path::Path::new(s).to_path_buf()),
@@ -71,6 +62,19 @@ fn init(config_dir: RString) -> State {
         .unwrap()
 }
 
+fn load_config(config_dir: RString) -> Config {
+    match fs::read_to_string(format!("{}/cliphist.ron", config_dir)) {
+        Ok(content) => ron::from_str(&content).unwrap_or_else(|why| {
+            eprintln!("Error parsing applications plugin config: {}", why);
+            Config::default()
+        }),
+        Err(why) => {
+            eprintln!("Error reading applications plugin config: {}", why);
+            Config::default()
+        }
+    }
+}
+
 fn get_clipboard_history(db: DB) -> Result<Vec<(u64, String)>, Error> {
     db.begin_tx().map_err(Error::DBTxError).and_then(|tx| {
         tx.bucket(BUCKET_NAME.as_bytes())
@@ -86,9 +90,7 @@ fn get_clipboard_history(db: DB) -> Result<Vec<(u64, String)>, Error> {
                                 id += 1;
                             }
                         }
-                    }
-                    loop {
-                        if let Ok(item) = cursor.next() {
+                        while let Ok(item) = cursor.next() {
                             if item.is_none() {
                                 break;
                             }
@@ -98,16 +100,13 @@ fn get_clipboard_history(db: DB) -> Result<Vec<(u64, String)>, Error> {
                                     id += 1;
                                 }
                             }
-                        } else {
-                            break;
                         }
                     }
                     res.reverse();
-                    res.into_iter()
-                        .unique_by(|e| String::from(e.1.as_str()))
-                        .collect()
+                    res.into_iter().unique_by(|e| e.1.clone()).collect()
                 })
             })
+            .and_then(|res| tx.rollback().map_err(Error::DBTxError).map(|_| res))
     })
 }
 
