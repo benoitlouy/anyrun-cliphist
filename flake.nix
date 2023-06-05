@@ -13,7 +13,10 @@
   }:
     parts.lib.mkFlake {inherit inputs;} {
       systems = [ "x86_64-linux" ];
-      imports = [nci.flakeModule];
+      imports = [
+        nci.flakeModule
+        parts.flakeModules.easyOverlay
+      ];
       perSystem = {
         pkgs,
         config,
@@ -42,11 +45,6 @@
         });
         # export the release package of the crate as default package
         packages.default = crateOutputs.packages.release;
-      };
-      flake = {
-        overlay = self: super: {
-          "anyrun-cliphist" = self.packages.${super.system}.default;
-        };
       };
     };
 }
