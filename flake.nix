@@ -22,7 +22,6 @@
         config,
         ...
       }: let
-        # TODO: change this to your crate's name
         crateName = "anyrun-cliphist";
         # shorthand for accessing this crate's outputs
         # you can access crate outputs under `config.nci.outputs.<crate name>` (see documentation)
@@ -40,11 +39,12 @@
           # look at documentation for more options
         };
         # export the crate devshell as the default devshell
-        devShells.default = config.nci.outputs.${crateName}.devShell.overrideAttrs (old: {
+        devShells.default = crateOutputs.devShell.overrideAttrs (old: {
           packages = (old.packages or []) ++ [pkgs.rust-analyzer];
         });
         # export the release package of the crate as default package
         packages.default = crateOutputs.packages.release;
+        # export the release crate as an overlay
         overlayAttrs = {
           "${crateName}" = crateOutputs.packages.release;
         };
