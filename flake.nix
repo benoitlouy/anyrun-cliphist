@@ -45,6 +45,9 @@
         });
         # export the release package of the crate as default package
         packages.default = crateOutputs.packages.release;
+        overlayAttrs = {
+          "${crateName}" = crateOutputs.packages.release;
+        };
       };
     };
 }
