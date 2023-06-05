@@ -22,6 +22,7 @@ impl Default for Config {
         }
     }
 }
+
 #[derive(Debug)]
 enum Error {
     CacheDirNotFound,
