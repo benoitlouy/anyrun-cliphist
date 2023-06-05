@@ -121,35 +121,53 @@ fn info() -> PluginInfo {
 
 #[get_matches]
 fn get_matches(input: RString, state: &State) -> RVec<Match> {
-    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().smart_case();
-    let mut entries = state
-        .history
-        .iter()
-        .filter_map(|(id, e)| {
-            let score = matcher.fuzzy_match(e.as_str(), &input).unwrap_or(0);
-            if score > 0 {
-                Some((id, e, score))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|a, b| b.2.cmp(&a.2));
-    entries.truncate(state.config.max_entries);
-    entries
-        .into_iter()
-        .map(|(id, entry, _)| {
-            let mut title = entry.clone().replace('\n', " ");
-            title.truncate(100);
-            Match {
-                title: title.trim().into(),
-                description: ROption::RNone,
-                use_pango: false,
-                icon: ROption::RNone,
-                id: ROption::RSome(*id),
-            }
-        })
-        .collect()
+    if input.is_empty() {
+        let entries = &state.history[..state.config.max_entries];
+        entries
+            .into_iter()
+            .map(|(id, entry)| {
+                let mut title = entry.clone().replace('\n', " ");
+                title.truncate(100);
+                Match {
+                    title: title.trim().into(),
+                    description: ROption::RNone,
+                    use_pango: false,
+                    icon: ROption::RNone,
+                    id: ROption::RSome(*id),
+                }
+            })
+            .collect()
+    } else {
+        let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().smart_case();
+        let mut entries = state
+            .history
+            .iter()
+            .filter_map(|(id, e)| {
+                let score = matcher.fuzzy_match(e.as_str(), &input).unwrap_or(0);
+                if score > 0 {
+                    Some((id, e, score))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|a, b| b.2.cmp(&a.2));
+        entries.truncate(state.config.max_entries);
+        entries
+            .into_iter()
+            .map(|(id, entry, _)| {
+                let mut title = entry.clone().replace('\n', " ");
+                title.truncate(100);
+                Match {
+                    title: title.trim().into(),
+                    description: ROption::RNone,
+                    use_pango: false,
+                    icon: ROption::RNone,
+                    id: ROption::RSome(*id),
+                }
+            })
+            .collect()
+    }
 }
 
 #[handler]
