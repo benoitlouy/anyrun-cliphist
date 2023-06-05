@@ -6,6 +6,7 @@
   inputs.parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
   outputs = inputs @ {
+    self,
     parts,
     nci,
     ...
@@ -41,6 +42,11 @@
         });
         # export the release package of the crate as default package
         packages.default = crateOutputs.packages.release;
+      };
+      flake = {
+        overlay = self: super: {
+          "anyrun-cliphist" = self.packages.${super.system}.default;
+        };
       };
     };
 }
