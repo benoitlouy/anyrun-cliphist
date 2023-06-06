@@ -10,15 +10,17 @@ const BUCKET_NAME: &str = "b";
 
 #[derive(Deserialize)]
 struct Config {
-    max_entries: usize,
+    max_entries: Option<usize>,
     db_path: Option<String>,
+    prefix: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_entries: 10,
+            max_entries: Some(10),
             db_path: None,
+            prefix: Some("".to_string()),
         }
     }
 }
@@ -33,13 +35,24 @@ enum Error {
 }
 
 struct State {
-    config: Config,
+    max_entries: usize,
+    prefix: String,
     history: Vec<(u64, String)>,
 }
 
 #[init]
 fn init(config_dir: RString) -> State {
     let config: Config = load_config(config_dir);
+
+    let max_entries = match config.max_entries {
+        Some(s) => s,
+        None => 10,
+    };
+
+    let prefix = match &config.prefix {
+        Some(s) => s.clone(),
+        None => "".to_string(),
+    };
 
     let db_path = match config.db_path {
         Some(ref s) => Ok(std::path::Path::new(s).to_path_buf()),
@@ -59,7 +72,11 @@ fn init(config_dir: RString) -> State {
     });
 
     db.and_then(get_clipboard_history)
-        .map(|history| State { config, history })
+        .map(|history| State {
+            max_entries,
+            prefix,
+            history,
+        })
         .unwrap()
 }
 
@@ -121,15 +138,19 @@ fn info() -> PluginInfo {
 
 #[get_matches]
 fn get_matches(input: RString, state: &State) -> RVec<Match> {
-    if input.is_empty() {
-        let entries = &state.history[..state.config.max_entries];
+    if !input.starts_with(&state.prefix) {
+        return RVec::new();
+    }
+
+    let cleaned_input = &input[state.prefix.len()..];
+    if cleaned_input.is_empty() {
+        let entries = &state.history[..state.max_entries];
         entries
             .into_iter()
             .map(|(id, entry)| {
-                let mut title = entry.clone().replace('\n', " ");
-                title.truncate(100);
+                let title = preview(entry.clone());
                 Match {
-                    title: title.trim().into(),
+                    title: title.into(),
                     description: ROption::RNone,
                     use_pango: false,
                     icon: ROption::RNone,
@@ -143,7 +164,7 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
             .history
             .iter()
             .filter_map(|(id, e)| {
-                let score = matcher.fuzzy_match(e.as_str(), &input).unwrap_or(0);
+                let score = matcher.fuzzy_match(e.as_str(), cleaned_input).unwrap_or(0);
                 if score > 0 {
                     Some((id, e, score))
                 } else {
@@ -152,14 +173,13 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
             })
             .collect::<Vec<_>>();
         entries.sort_by(|a, b| b.2.cmp(&a.2));
-        entries.truncate(state.config.max_entries);
+        entries.truncate(state.max_entries);
         entries
             .into_iter()
             .map(|(id, entry, _)| {
-                let mut title = entry.clone().replace('\n', " ");
-                title.truncate(100);
+                let title = preview(entry.clone());
                 Match {
-                    title: title.trim().into(),
+                    title: title.into(),
                     description: ROption::RNone,
                     use_pango: false,
                     icon: ROption::RNone,
@@ -168,6 +188,12 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
             })
             .collect()
     }
+}
+
+fn preview(s: String) -> String {
+    let mut formatted = s.split('\n').map(|s| s.trim()).join(" ");
+    formatted.truncate(100);
+    formatted
 }
 
 #[handler]
