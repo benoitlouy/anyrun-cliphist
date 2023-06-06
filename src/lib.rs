@@ -83,11 +83,11 @@ fn init(config_dir: RString) -> State {
 fn load_config(config_dir: RString) -> Config {
     match fs::read_to_string(format!("{}/cliphist.ron", config_dir)) {
         Ok(content) => ron::from_str(&content).unwrap_or_else(|why| {
-            eprintln!("Error parsing applications plugin config: {}", why);
+            eprintln!("Error parsing cliphist plugin config: {}", why);
             Config::default()
         }),
         Err(why) => {
-            eprintln!("Error reading applications plugin config: {}", why);
+            eprintln!("Error reading cliphist plugin config: {}", why);
             Config::default()
         }
     }
