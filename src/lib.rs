@@ -1,83 +1,83 @@
 use abi_stable::std_types::{ROption, RString, RVec};
 use anyrun_plugin::*;
 use fuzzy_matcher::FuzzyMatcher;
-use itertools::Itertools;
-use nut::{DBBuilder, DB};
 use serde::Deserialize;
 use std::fs;
-
-const BUCKET_NAME: &str = "b";
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 #[derive(Deserialize)]
 struct Config {
-    max_entries: Option<usize>,
-    db_path: Option<String>,
-    prefix: Option<String>,
+    #[serde(default = "max_entries")]
+    max_entries: usize,
+    #[serde(default = "cliphist_path")]
+    cliphist_path: String,
+    #[serde(default = "prefix")]
+    prefix: String,
+}
+
+fn max_entries() -> usize {
+    10
+}
+
+fn cliphist_path() -> String {
+    "cliphist".into()
+}
+
+fn prefix() -> String {
+    "".into()
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_entries: Some(10),
-            db_path: None,
-            prefix: Some("".to_string()),
+            max_entries: max_entries(),
+            cliphist_path: cliphist_path(),
+            prefix: prefix(),
         }
     }
 }
 
 #[derive(Debug)]
 enum Error {
-    CacheDirNotFound,
-    DBReadError { _msg: String, _cause: nut::Error },
-    DBTxError(nut::Error),
-    DBBucketError(nut::Error),
-    DBCursorError(nut::Error),
+    CliphistCommandFailed(std::io::Error),
+    CliphistReturnCodeError(i32),
+    ReadOutputError(std::string::FromUtf8Error),
+    StdinError,
+    Threaderror,
 }
 
 struct State {
-    max_entries: usize,
-    prefix: String,
-    history: Vec<(u64, String)>,
+    config: Config,
+    history: Vec<(usize, String, String)>,
 }
 
 #[init]
 fn init(config_dir: RString) -> State {
     let config: Config = load_config(config_dir);
 
-    let max_entries = match config.max_entries {
-        Some(s) => s,
-        None => 10,
-    };
+    let output = Command::new(&config.cliphist_path)
+        .args(["list"])
+        .output()
+        .map_err(Error::CliphistCommandFailed);
 
-    let prefix = match &config.prefix {
-        Some(s) => s.clone(),
-        None => "".to_string(),
-    };
-
-    let db_path = match config.db_path {
-        Some(ref s) => Ok(std::path::Path::new(s).to_path_buf()),
-        None => dirs::cache_dir()
-            .ok_or(Error::CacheDirNotFound)
-            .map(|d| d.as_path().join("cliphist").join("db")),
-    };
-
-    let db = db_path.and_then(|path| {
-        DBBuilder::new(path.clone())
-            .read_only(true)
-            .build()
-            .map_err(|e| Error::DBReadError {
-                _msg: format!("failed opening cliphist db at {}", path.display()),
-                _cause: e,
-            })
+    let content = output.and_then(|o| {
+        if o.status.success() {
+            String::from_utf8(o.stdout).map_err(Error::ReadOutputError)
+        } else {
+            Err(Error::CliphistReturnCodeError(o.status.code().unwrap_or(1)))
+        }
     });
 
-    db.and_then(get_clipboard_history)
-        .map(|history| State {
-            max_entries,
-            prefix,
-            history,
-        })
-        .unwrap()
+    let history = content.map(|s| {
+        s.split('\n')
+            .filter_map(|l| l.split_once('\t'))
+            .enumerate()
+            .map(|(id, (a, b))| (id, a.to_string(), b.to_string()))
+            .collect::<Vec<_>>()
+    });
+
+    history.map(|history| State { config, history }).unwrap()
 }
 
 fn load_config(config_dir: RString) -> Config {
@@ -93,41 +93,6 @@ fn load_config(config_dir: RString) -> Config {
     }
 }
 
-fn get_clipboard_history(db: DB) -> Result<Vec<(u64, String)>, Error> {
-    db.begin_tx().map_err(Error::DBTxError).and_then(|tx| {
-        tx.bucket(BUCKET_NAME.as_bytes())
-            .map_err(Error::DBBucketError)
-            .and_then(|bucket| {
-                bucket.cursor().map_err(Error::DBCursorError).map(|cursor| {
-                    let mut res = Vec::new();
-                    let mut id = 0;
-                    if let Ok(item) = cursor.first() {
-                        if let Some(v) = item.value {
-                            if let Ok(s) = String::from_utf8(v.to_vec()) {
-                                res.push((id, s));
-                                id += 1;
-                            }
-                        }
-                        while let Ok(item) = cursor.next() {
-                            if item.is_none() {
-                                break;
-                            }
-                            if let Some(v) = item.value {
-                                if let Ok(s) = String::from_utf8(v.to_vec()) {
-                                    res.push((id, s));
-                                    id += 1;
-                                }
-                            }
-                        }
-                    }
-                    res.reverse();
-                    res.into_iter().unique_by(|e| e.1.clone()).collect()
-                })
-            })
-            .and_then(|res| tx.rollback().map_err(Error::DBTxError).map(|_| res))
-    })
-}
-
 #[info]
 fn info() -> PluginInfo {
     PluginInfo {
@@ -138,23 +103,23 @@ fn info() -> PluginInfo {
 
 #[get_matches]
 fn get_matches(input: RString, state: &State) -> RVec<Match> {
-    if !input.starts_with(&state.prefix) {
+    if !input.starts_with(&state.config.prefix) {
         return RVec::new();
     }
 
-    let cleaned_input = &input[state.prefix.len()..];
+    let cleaned_input = &input[state.config.prefix.len()..];
     if cleaned_input.is_empty() {
-        let entries = &state.history[..state.max_entries];
+        let entries = &state.history[..state.config.max_entries];
         entries
             .into_iter()
-            .map(|(id, entry)| {
-                let title = preview(entry.clone());
+            .map(|(id, _, entry)| {
+                let title = entry.clone();
                 Match {
                     title: title.into(),
                     description: ROption::RNone,
                     use_pango: false,
                     icon: ROption::RNone,
-                    id: ROption::RSome(*id),
+                    id: ROption::RSome(*id as u64),
                 }
             })
             .collect()
@@ -163,51 +128,74 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
         let mut entries = state
             .history
             .iter()
-            .filter_map(|(id, e)| {
-                let score = matcher.fuzzy_match(e.as_str(), cleaned_input).unwrap_or(0);
+            .filter_map(|(id, _, entry)| {
+                let score = matcher.fuzzy_match(&entry, cleaned_input).unwrap_or(0);
                 if score > 0 {
-                    Some((id, e, score))
+                    Some((id, entry, score))
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
         entries.sort_by(|a, b| b.2.cmp(&a.2));
-        entries.truncate(state.max_entries);
+        entries.truncate(state.config.max_entries);
         entries
             .into_iter()
             .map(|(id, entry, _)| {
-                let title = preview(entry.clone());
+                let title = entry.clone();
                 Match {
                     title: title.into(),
                     description: ROption::RNone,
                     use_pango: false,
                     icon: ROption::RNone,
-                    id: ROption::RSome(*id),
+                    id: ROption::RSome(*id as u64),
                 }
             })
             .collect()
     }
 }
 
-fn preview(s: String) -> String {
-    let mut formatted = s.split('\n').map(|s| s.trim()).join(" ");
-    formatted.truncate(100);
-    formatted
-}
-
 #[handler]
 fn handler(selection: Match, state: &State) -> HandleResult {
-    let entry = state
+    let id = state
         .history
         .iter()
-        .find_map(|(id, entry)| {
-            if *id == selection.id.unwrap() {
-                Some(entry)
+        .find_map(|(id, cliphist_id, _)| {
+            if *id as u64 == selection.id.unwrap() {
+                Some(cliphist_id)
             } else {
                 None
             }
         })
+        .map(|id| format!("{}\t ", id))
         .unwrap();
-    HandleResult::Copy(entry.as_bytes().into())
+
+    let child = Command::new(&state.config.cliphist_path)
+        .args(["decode"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(Error::CliphistCommandFailed);
+
+    let output = child.and_then(|mut c| {
+        let write_to_stdin = c
+            .stdin
+            .take()
+            .ok_or(Error::StdinError)
+            .and_then(|mut stdin| {
+                std::thread::spawn(move || {
+                    stdin
+                        .write_all(id.as_bytes())
+                        .map_err(|_| Error::StdinError)
+                })
+                .join()
+                .map_err(|_| Error::Threaderror)
+                .and_then(|r| r)
+            });
+        write_to_stdin.and_then(|_| c.wait_with_output().map_err(Error::CliphistCommandFailed))
+    });
+
+    output
+        .map(|bytes| HandleResult::Copy(bytes.stdout.into()))
+        .unwrap()
 }
