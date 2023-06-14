@@ -42,7 +42,6 @@ impl Default for Config {
 enum Error {
     CliphistCommandFailed(std::io::Error),
     CliphistReturnCodeError(i32),
-    ReadOutputError(std::string::FromUtf8Error),
     StdinError,
     Threaderror,
 }
@@ -61,13 +60,16 @@ fn init(config_dir: RString) -> State {
         .output()
         .map_err(Error::CliphistCommandFailed);
 
-    let content = output.and_then(|o| {
-        if o.status.success() {
-            String::from_utf8(o.stdout).map_err(Error::ReadOutputError)
-        } else {
-            Err(Error::CliphistReturnCodeError(o.status.code().unwrap_or(1)))
+    let content = match output {
+        Ok(o) => {
+            if o.status.success() {
+                Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+            } else {
+                Err(Error::CliphistReturnCodeError(o.status.code().unwrap_or(1)))
+            }
         }
-    });
+        Err(e) => Err(e),
+    };
 
     let history = content.map(|s| {
         s.split('\n')
