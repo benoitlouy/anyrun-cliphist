@@ -16,7 +16,6 @@
       imports = [
         nci.flakeModule
         ./nix/overlay.nix
-        # parts.flakeModules.easyOverlay
       ];
       perSystem = { pkgs, config, ... }:
         let
@@ -43,12 +42,6 @@
           });
           # export the release package of the crate as default package
           packages.default = crateOutputs.packages.release;
-          # export the release crate as an overlay
-          # overlayAttrs = {
-          #   anyrunPlugins = {
-          #     cliphist = crateOutputs.packages.release;
-          #   };
-          # };
         };
     };
 }
