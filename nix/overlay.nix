@@ -1,8 +1,14 @@
-{ withSystem, ... }: {
+{ getSystemIgnoreWarning, withSystem, ... }:
+let
+  withSystemIgnoreWarning = system: f: f (getSystemIgnoreWarning system).allModuleArgs;
+in
+{
   flake.overlays.default = final: prev:
-    withSystem prev.stdenv.hostPlatform.system (
+    withSystemIgnoreWarning prev.stdenv.hostPlatform.system (
       { config, ... }: {
-        anyrun-cliphist = config.packages.default;
+        anyrunPlugins = (prev.anyrunPlugins or { }) // {
+          cliphist = config.packages.default;
+        };
       }
     );
 }
