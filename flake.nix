@@ -44,7 +44,9 @@
           packages.default = crateOutputs.packages.release;
           # export the release crate as an overlay
           overlayAttrs = {
-            "${crateName}" = crateOutputs.packages.release;
+            anyrunPlugins = {
+              cliphist = crateOutputs.packages.release;
+            };
           };
         };
     };
