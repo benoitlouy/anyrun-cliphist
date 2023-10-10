@@ -1,6 +1,8 @@
-{ getSystemIgnoreWarning, withSystem, ... }:
+{ getSystemIgnoreWarning, ... }:
 let
-  withSystemIgnoreWarning = system: f: f (getSystemIgnoreWarning system).allModuleArgs;
+  withSystemIgnoreWarning =
+    system: f:
+    f (getSystemIgnoreWarning system).allModuleArgs;
 in
 {
   flake.overlays.default = final: prev:
