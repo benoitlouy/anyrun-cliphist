@@ -111,7 +111,8 @@ fn get_matches(input: RString, state: &State) -> RVec<Match> {
 
     let cleaned_input = &input[state.config.prefix.len()..];
     if cleaned_input.is_empty() {
-        let entries = &state.history[..state.config.max_entries];
+        let max_entries = state.history.len().min(state.config.max_entries);
+        let entries = &state.history[..max_entries];
         entries
             .into_iter()
             .map(|(id, _, entry)| {
